@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33.0"
+duct = "0.13.3"
+itertools = "0.9.0"
