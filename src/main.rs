@@ -142,7 +142,7 @@ fn main() {
         (@subcommand add =>
             (about: "Add packages to `aurto` repository")
             (@arg EDIT_PKGBUILD: -e --edit "Edit PKGBUILD  before building")
-            (@arg bind: --bind <dir> "Bind directory read-only")
+            (@arg bind: --bind [dir] "Bind directory read-only")
             (@arg packages: * "Package(s) to add")
         )
         (@subcommand update =>
@@ -151,6 +151,7 @@ fn main() {
             (@arg packages: "Package(s) to update")
         )
         (@subcommand remove =>
+            (alias: "rm")
             (about: "Remove packages from `aurto` repository")
             (@arg packages: * "Package(s) to remove")
         )
