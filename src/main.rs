@@ -1,15 +1,71 @@
 use clap::clap_app;
+use duct::cmd;
+use itertools::Itertools;
+use std::{thread::sleep, time::Duration};
 
 fn is_valid_pkg_file(s: String) -> Result<(), String> {
-    if s.ends_with(".pkg.tar.xz") {
+    if s.contains(".pkg.tar.") {
         return Ok(());
     }
     Err("pkg file does not end with typical format `.pkg.tar.xz`".to_string())
 }
 
+fn aurto_sync() -> Result<(), std::io::Error> {
+    cmd!("sudo", "pacsync", "aurto").stdout_null().stderr_null().run()?;
+    Ok(())
+}
+
+// Todo: Create global lock
 fn add(pkgs: Vec<&str>, edit: bool) {
-    for pkg in pkgs {
-        println!("Updating pkg {}", pkg);
+    let aur_pkglist = cmd!("aur", "pkglist")
+        .pipe(cmd!("sort"))
+        .stdout_capture()
+        .read()
+        .expect("Command failed!")
+        .lines()
+        .map(str::to_owned)
+        .collect_vec();
+
+    fn aur_check_deps(needle: &str, haystack: &Vec<String>) -> Vec<String> {
+        let stack = cmd!("aur", "depends", needle)
+            .stderr_null()
+            .pipe(cmd!("cut", "-f2"))
+            .pipe(cmd!("sort"))
+            .stdout_capture()
+            .read()
+            .expect("Command failed!")
+            .lines()
+            .filter(|my| haystack.iter().any(|aur| aur == my))
+            .map(str::to_owned)
+            .collect();
+        stack
+    }
+
+    let pkgs_and_deps: Vec<_> = pkgs
+        .into_iter()
+        .map(|pkg| aur_check_deps(pkg, &aur_pkglist).into_iter())
+        .kmerge()
+        .dedup()
+        .collect();
+
+    let all = pkgs_and_deps.join(" ");
+    println!("Installing {}", all);
+
+    let sync = cmd!(
+        "aur",
+        "sync",
+        "--chroot",
+        "--database=aurto",
+        "--makepkg-conf=/etc/aurto/makepkg-chroot.conf",
+        all.clone()
+    )
+    .start()
+    .unwrap();
+
+    // Wait for sync to finish
+    let out = sync.wait().unwrap();
+    if out.status.success() {
+        println!("Added {} to `aurto` db successfully!", all);
     }
 }
 
@@ -31,7 +87,7 @@ fn update(pkgs: Vec<&str>, edit: bool) {
     }
 }
 fn main() {
-    let mut app = clap_app!(myapp =>
+    let app = clap_app!(myapp =>
         (version: "0.0")
         (author: "Kevin H. <kevin@kevinhill.nl>")
         (about: "aur-utils wrapper")
