@@ -1,13 +1,12 @@
 use clap::clap_app;
 use duct::cmd;
 use itertools::Itertools;
-use std::{thread::sleep, time::Duration};
 
 fn is_valid_pkg_file(s: String) -> Result<(), String> {
     if s.contains(".pkg.tar.") {
         return Ok(());
     }
-    Err("pkg file does not end with typical format `.pkg.tar.xz`".to_string())
+    Err("pkg file does not end with typical format `.pkg.tar".to_string())
 }
 
 fn aurto_sync() -> Result<(), std::io::Error> {
@@ -69,10 +68,48 @@ fn add(pkgs: Vec<&str>, edit: bool) {
     }
 }
 
-fn remove(pkgs: Vec<&str>) {
+fn remove(pkgs: Vec<&str>) -> Option<()> {
+    let mut removed_pkgs = Vec::new();
     for pkg in pkgs {
-        println!("Updating pkg {}", pkg);
+        if cmd!("repo-remove", "/var/cache/pacman/aurto/aurto.db.tar", pkg)
+            .stderr_to_stdout()
+            .stdout_capture()
+            .read()
+            .unwrap()
+            .contains("ERROR")
+        {
+            println!("Package {} not found!", pkg);
+        } else {
+            let dir = "/var/cache/pacman/aurto";
+            for entry in std::fs::read_dir(dir).ok()? {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                println!("Parsing path {:?}", path);
+                println!("Path is file: {}", path.is_file());
+                println!(
+                    "Path starts with {}: {}",
+                    pkg,
+                    path.file_name().unwrap().to_str().unwrap().starts_with(pkg)
+                );
+                println!("Path contains '.pkg.': {}", path.to_str().unwrap().contains(".pkg."));
+                let is_file = path.is_file();
+                let is_relevant_package = path.file_name()?.to_str()?.starts_with(pkg);
+                let contains_pkg = path.file_name()?.to_str()?.contains(".pkg.");
+                if is_file && is_relevant_package && contains_pkg {
+                    println!("Attempting to remove file");
+                    if std::fs::remove_file(path).is_ok() {
+                        if removed_pkgs.iter().all(|&r| r != pkg) {
+                            removed_pkgs.push(pkg);
+                        }
+                    }
+                }
+            }
+        }
     }
+    println!("Removed packages {}", removed_pkgs.join(" "));
+
+    aurto_sync().ok()?;
+    Some(())
 }
 
 fn addpkg(pkgs: Vec<&str>) {
@@ -121,7 +158,7 @@ fn main() {
             sub.values_of("packages").unwrap().collect(),
             sub.is_present("EDIT_PKGBUILD"),
         ),
-        ("remove", Some(sub)) => remove(sub.values_of("packages").unwrap().collect()),
+        ("remove", Some(sub)) => remove(sub.values_of("packages").unwrap().collect()).unwrap(),
         ("update", Some(sub)) => update(
             sub.values_of("packages").unwrap().collect(),
             sub.is_present("EDIT_PKGBUILD"),
