@@ -56,6 +56,11 @@ fn add(pkgs: Vec<&str>, edit: bool, bind: Option<String>) {
         "--makepkg-conf=/etc/aurto/makepkg-chroot.conf",
     ];
 
+    if !edit {
+        args.push("--no-view");
+        args.push("--no-confirm");
+    }
+
     let s;
     if let Some(val) = bind {
         s = format!("--bind={}", val);
