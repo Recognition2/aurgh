@@ -15,7 +15,7 @@ fn aurto_sync() -> Result<(), std::io::Error> {
 }
 
 // Todo: Create global lock
-fn add(pkgs: Vec<&str>, edit: bool) {
+fn add(pkgs: Vec<&str>, edit: bool, bind: Option<String>) {
     let aur_pkglist = cmd!("aur", "pkglist")
         .pipe(cmd!("sort"))
         .stdout_capture()
@@ -26,7 +26,7 @@ fn add(pkgs: Vec<&str>, edit: bool) {
         .collect_vec();
 
     fn aur_check_deps(needle: &str, haystack: &Vec<String>) -> Vec<String> {
-        let stack = cmd!("aur", "depends", needle)
+        cmd!("aur", "depends", needle)
             .stderr_null()
             .pipe(cmd!("cut", "-f2"))
             .pipe(cmd!("sort"))
@@ -36,8 +36,7 @@ fn add(pkgs: Vec<&str>, edit: bool) {
             .lines()
             .filter(|my| haystack.iter().any(|aur| aur == my))
             .map(str::to_owned)
-            .collect();
-        stack
+            .collect()
     }
 
     let pkgs_and_deps: Vec<_> = pkgs
@@ -50,16 +49,21 @@ fn add(pkgs: Vec<&str>, edit: bool) {
     let all = pkgs_and_deps.join(" ");
     println!("Installing {}", all);
 
-    let sync = cmd!(
-        "aur",
+    let mut args = vec![
         "sync",
         "--chroot",
         "--database=aurto",
         "--makepkg-conf=/etc/aurto/makepkg-chroot.conf",
-        all.clone()
-    )
-    .start()
-    .unwrap();
+    ];
+
+    let s;
+    if let Some(val) = bind {
+        s = format!("--bind={}", val);
+        args.push(&s);
+    }
+
+    pkgs_and_deps.iter().for_each(|pkg| args.push(pkg));
+    let sync = cmd("aur", &args).start().unwrap();
 
     // Wait for sync to finish
     let out = sync.wait().unwrap();
@@ -97,10 +101,8 @@ fn remove(pkgs: Vec<&str>) -> Option<()> {
                 let contains_pkg = path.file_name()?.to_str()?.contains(".pkg.");
                 if is_file && is_relevant_package && contains_pkg {
                     println!("Attempting to remove file");
-                    if std::fs::remove_file(path).is_ok() {
-                        if removed_pkgs.iter().all(|&r| r != pkg) {
-                            removed_pkgs.push(pkg);
-                        }
+                    if std::fs::remove_file(path).is_ok() && removed_pkgs.iter().all(|&r| r != pkg) {
+                        removed_pkgs.push(pkg);
                     }
                 }
             }
@@ -135,6 +137,7 @@ fn main() {
         (@subcommand add =>
             (about: "Add packages to `aurto` repository")
             (@arg EDIT_PKGBUILD: -e --edit "Edit PKGBUILD  before building")
+            (@arg bind: --bind <dir> "Bind directory read-only")
             (@arg packages: * "Package(s) to add")
         )
         (@subcommand update =>
@@ -157,6 +160,7 @@ fn main() {
         ("add", Some(sub)) => add(
             sub.values_of("packages").unwrap().collect(),
             sub.is_present("EDIT_PKGBUILD"),
+            sub.value_of("bind").map(str::to_owned),
         ),
         ("remove", Some(sub)) => remove(sub.values_of("packages").unwrap().collect()).unwrap(),
         ("update", Some(sub)) => update(
