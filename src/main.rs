@@ -1,4 +1,4 @@
-use clap::clap_app;
+use clap::{clap_app, ArgMatches};
 use duct::cmd;
 use itertools::Itertools;
 
@@ -17,7 +17,7 @@ fn aurto_sync() -> Result<(), std::io::Error> {
 }
 
 // Todo: Create global lock
-fn add(pkgs: Vec<&str>, edit: bool, bind: Option<String>) -> Option<()> {
+fn add(sub: &ArgMatches) -> Option<()> {
     let aur_pkglist = cmd!("aur", "pkglist")
         .pipe(cmd!("sort"))
         .stdout_capture()
@@ -40,6 +40,7 @@ fn add(pkgs: Vec<&str>, edit: bool, bind: Option<String>) -> Option<()> {
             .map(str::to_owned)
             .collect()
     }
+    let pkgs = ["hoi"];
 
     let pkgs_and_deps: Vec<_> = pkgs
         .into_iter()
@@ -58,11 +59,13 @@ fn add(pkgs: Vec<&str>, edit: bool, bind: Option<String>) -> Option<()> {
         "--makepkg-conf=/etc/aurto/makepkg-chroot.conf",
     ];
 
+    let edit = false;
     if !edit {
         args.push("--no-view");
         args.push("--no-confirm");
     }
 
+    let bind = Some("meuk");
     let s;
     if let Some(val) = bind {
         s = format!("--bind={}", val);
@@ -81,7 +84,8 @@ fn add(pkgs: Vec<&str>, edit: bool, bind: Option<String>) -> Option<()> {
     Some(())
 }
 
-fn remove(pkgs: Vec<&str>) -> Option<()> {
+fn remove(sub: &ArgMatches) -> Option<()> {
+    let pkgs = vec!["hoi"];
     let mut removed_pkgs = Vec::new();
     for pkg in pkgs {
         if cmd!("repo-remove", "/var/cache/pacman/aurto/aurto.db.tar", pkg)
@@ -115,7 +119,8 @@ fn remove(pkgs: Vec<&str>) -> Option<()> {
     Some(())
 }
 
-fn addpkg(pkgs: Vec<&str>) -> Option<()> {
+fn addpkg(sub: &ArgMatches) -> Option<()> {
+    let pkgs = vec!["hoi"];
     let mut args = vec!["/var/cache/pacman/aurto/aurto.db.tar"];
     for pkg in &pkgs {
         args.push(pkg);
@@ -130,7 +135,8 @@ fn addpkg(pkgs: Vec<&str>) -> Option<()> {
     Some(())
 }
 
-fn update(pkgs: Vec<&str>, edit: bool, bind: Option<String>) -> Option<()> {
+fn update(sub: &ArgMatches) -> Option<()> {
+    let pkgs = vec!["meuk"];
     aurto_sync().ok()?;
     let update_all = pkgs.len() == 0;
     if update_all {
@@ -141,12 +147,14 @@ fn update(pkgs: Vec<&str>, edit: bool, bind: Option<String>) -> Option<()> {
             "--makepkg-conf=/etc/aurto/makepkg-chroot.conf",
             "--upgrades",
         ];
+        let edit = false;
 
         if !edit {
             args.push("--no-view");
             args.push("--no-confirm");
         }
 
+        let bind = Some("m");
         let s;
         if let Some(val) = bind {
             s = format!("--bind={}", val);
@@ -161,8 +169,8 @@ fn update(pkgs: Vec<&str>, edit: bool, bind: Option<String>) -> Option<()> {
     Some(())
 }
 fn main() {
-    let app = clap_app!(myapp =>
-        (version: "0.0")
+    let app = clap_app!(aurgh =>
+        (version: "0.1")
         (author: "Kevin H. <kevin@kevinhill.nl>")
         (about: "aur-utils wrapper")
         (@arg verbose: ... -v --verbose "Increase verbosity")
@@ -172,43 +180,41 @@ fn main() {
         (@subcommand add =>
             (about: "Add packages to `aurto` repository")
             (@arg EDIT_PKGBUILD: -e --edit "Edit PKGBUILD  before building")
-            (@arg bind: --bind [dir] "Bind directory read-only")
+            (@arg bind: --bind [DIR] "Bind directory read-only")
             (@arg packages: ... * "Package(s) to add")
+            (@group build_options =>
+                (@arg force: -f --force "Continue the build process if a package with the same name exists")
+                (@arg ignorefile: --("ignore-file") [FILE] "Ignore package upgrades listed in FILE. Each package name should be specified on a separate line.")
+                (@arg ignore: --ignore ... [PACKAGE] "Ignore a package upgrade. Multiple packages can be specified by seperating them with a comma, or by repeating the --ignore option.")
+                (@arg nograph: --nograph --no-graph "Do not verify the AUR dependency with aur graph (1).")
+            )
+            (@group container_options =>
+                (@arg chroot: -c --chroot "Build packages with makechrootpkg. (aur build -c)")
+            )
         )
         (@subcommand update =>
             (about: "Try to update all packages in the `aurto` repository. Force rebuild of <packages>")
             (@arg EDIT_PKGBUILD: -e --edit "Edit PKGBUILD  before building")
             (@arg bind: --bind [dir] "Bind directory read-only")
-            (@arg packages: "Package(s) to update")
+            (@arg packages: ... "Package(s) to update")
         )
         (@subcommand remove =>
             (alias: "rm")
             (about: "Remove packages from `aurto` repository")
-            (@arg packages: * "Package(s) to remove")
+            (@arg packages: ... * "Package(s) to remove")
         )
         (@subcommand addpkg =>
             (about: "Add packages files to `aurto` repository")
-            (@arg packages: * {is_valid_pkg_file} "Package(s) to add")
+            (@arg packages: ... * {is_valid_pkg_file} "Package(s) to add")
         )
     );
     let cli_args = app.clone().get_matches();
 
     match cli_args.subcommand() {
-        ("add", Some(sub)) => add(
-            sub.values_of("packages").unwrap().collect(),
-            sub.is_present("EDIT_PKGBUILD"),
-            sub.value_of("bind").map(str::to_owned),
-        )
-        .unwrap(),
-        ("remove", Some(sub)) => remove(sub.values_of("packages").unwrap().collect()).unwrap(),
-        ("update", Some(sub)) => update(
-            sub.values_of("packages").unwrap().collect(),
-            sub.is_present("EDIT_PKGBUILD"),
-            sub.value_of("bind").map(str::to_owned),
-        )
-        .unwrap(),
-        ("addpkg", Some(sub)) => addpkg(sub.values_of("packages").unwrap().collect()).unwrap(),
-
+        ("add", Some(sub)) => add(sub).unwrap(),
+        ("remove", Some(sub)) => remove(sub).unwrap(),
+        ("update", Some(sub)) => update(sub).unwrap(),
+        ("addpkg", Some(sub)) => addpkg(sub).unwrap(),
         _ => app
             .write_help(&mut std::io::stdout())
             .expect("Failed to write to stdout"),
